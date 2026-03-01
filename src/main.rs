@@ -1,0 +1,129 @@
+mod hci;
+mod output;
+mod remoteid;
+mod tracker;
+
+use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
+
+use crate::hci::commands;
+use crate::hci::events;
+use crate::hci::socket::HciSocket;
+use crate::remoteid::decode;
+use crate::remoteid::filter;
+use crate::tracker::Tracker;
+
+fn parse_adapter_index(name: &str) -> Option<u16> {
+    name.strip_prefix("hci").and_then(|s| s.parse().ok())
+}
+
+fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    let args: Vec<String> = std::env::args().collect();
+    let adapter = args.get(1).map(|s| s.as_str()).unwrap_or("hci0");
+    let dev_id = parse_adapter_index(adapter).unwrap_or_else(|| {
+        eprintln!("Invalid adapter name: {} (expected hciN)", adapter);
+        std::process::exit(1);
+    });
+
+    let expiry_secs: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(60);
+
+    log::info!("Opening HCI socket on {} (dev_id={})", adapter, dev_id);
+    let sock = HciSocket::open(dev_id).unwrap_or_else(|e| {
+        eprintln!(
+            "Failed to open HCI socket: {} (try running with sudo or CAP_NET_RAW)",
+            e
+        );
+        std::process::exit(1);
+    });
+
+    log::info!("Configuring LE scan parameters (passive, 100ms interval/window)");
+    if let Err(e) = commands::le_set_scan_parameters(&sock) {
+        eprintln!("Failed to set scan parameters: {}", e);
+        std::process::exit(1);
+    }
+
+    log::info!("Enabling LE scan");
+    if let Err(e) = commands::le_set_scan_enable(&sock, true) {
+        eprintln!("Failed to enable scan: {}", e);
+        std::process::exit(1);
+    }
+
+    // Handle Ctrl+C via a static AtomicBool (signal-safe)
+    unsafe {
+        libc::signal(
+            libc::SIGINT,
+            signal_handler as *const () as libc::sighandler_t,
+        );
+    }
+
+    println!(
+        "Buzzkill scanning for Remote ID drones on {}... (Ctrl+C to stop)",
+        adapter
+    );
+
+    let mut tracker = Tracker::new(expiry_secs);
+    let mut buf = [0u8; 1024];
+    let mut last_expire = Instant::now();
+
+    while RUNNING.load(Ordering::Relaxed) {
+        let n = match sock.read_event(&mut buf) {
+            Ok(n) => n,
+            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                log::error!("Read error: {}", e);
+                break;
+            }
+        };
+
+        if n < 2 {
+            continue;
+        }
+
+        // buf[0] is the HCI packet indicator (0x04 for events), rest is the event
+        let event_buf = if buf[0] == 0x04 {
+            &buf[1..n]
+        } else {
+            &buf[..n]
+        };
+
+        if let Some(reports) = events::parse_hci_event(event_buf) {
+            for report in &reports {
+                let payloads = filter::extract_remote_id(&report.data);
+                for payload in &payloads {
+                    let messages = decode::decode_all(&payload.message);
+                    for msg in &messages {
+                        let is_new =
+                            tracker.update(&report.addr, report.rssi, payload.counter, msg);
+
+                        if is_new {
+                            output::print_new_drone(&report.addr, report.rssi);
+                        }
+                        output::print_message(&report.addr, report.rssi, msg);
+                    }
+                }
+            }
+        }
+
+        // Periodic expiry check
+        if last_expire.elapsed().as_secs() >= 5 {
+            tracker.expire();
+            last_expire = Instant::now();
+        }
+    }
+
+    log::info!("Disabling LE scan");
+    let _ = commands::le_set_scan_enable(&sock, false);
+    println!(
+        "Scan stopped. Tracked {} drone(s) total.",
+        tracker.drones.len()
+    );
+}
+
+static RUNNING: AtomicBool = AtomicBool::new(true);
+
+extern "C" fn signal_handler(_sig: libc::c_int) {
+    RUNNING.store(false, Ordering::SeqCst);
+}
