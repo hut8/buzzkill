@@ -4,9 +4,10 @@ use std::time::Instant;
 use crate::output;
 use crate::remoteid::decode::{BasicId, DroneIdMessage, Location, OperatorId, System};
 
-/// Per-drone tracked state, keyed by BLE MAC address.
+/// Per-drone tracked state, keyed by MAC address.
 pub struct DroneState {
     pub mac: [u8; 6],
+    pub transport: &'static str,
     pub first_seen: Instant,
     pub last_seen: Instant,
     pub rssi: i8,
@@ -38,12 +39,14 @@ impl Tracker {
         rssi: i8,
         counter: u8,
         message: &DroneIdMessage,
+        transport: &'static str,
     ) -> bool {
         let now = Instant::now();
         let is_new = !self.drones.contains_key(mac);
 
         let state = self.drones.entry(*mac).or_insert_with(|| DroneState {
             mac: *mac,
+            transport,
             first_seen: now,
             last_seen: now,
             rssi,

@@ -1,10 +1,13 @@
+mod db;
 mod hci;
 mod output;
 mod remoteid;
 mod tracker;
+mod wifi;
 
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::Instant;
 
 use crate::hci::commands;
@@ -28,7 +31,29 @@ fn main() {
         std::process::exit(1);
     });
 
-    let expiry_secs: u64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(60);
+    let expiry_secs: u64 = args
+        .iter()
+        .position(|a| a == "--expiry")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(60);
+
+    let wifi_iface: Option<String> = args
+        .iter()
+        .position(|a| a == "--wifi")
+        .and_then(|i| args.get(i + 1).cloned());
+
+    // Set up DB channel if DATABASE_URL is set
+    let db_tx: Option<mpsc::SyncSender<db::SightingRow>> = if std::env::var("DATABASE_URL").is_ok()
+    {
+        let (tx, rx) = mpsc::sync_channel::<db::SightingRow>(1000);
+        db::spawn_writer(rx);
+        log::info!("Database logging enabled");
+        Some(tx)
+    } else {
+        log::warn!("DATABASE_URL not set — database logging disabled");
+        None
+    };
 
     log::info!("Opening HCI socket on {} (dev_id={})", adapter, dev_id);
     let sock = HciSocket::open(dev_id).unwrap_or_else(|e| {
@@ -57,6 +82,18 @@ fn main() {
             libc::SIGINT,
             signal_handler as *const () as libc::sighandler_t,
         );
+        libc::signal(
+            libc::SIGTERM,
+            signal_handler as *const () as libc::sighandler_t,
+        );
+    }
+
+    // Spawn WiFi scanner thread if requested
+    if let Some(iface) = wifi_iface {
+        let wifi_db_tx = db_tx.clone();
+        std::thread::spawn(move || {
+            wifi::run(&iface, &RUNNING, wifi_db_tx, expiry_secs);
+        });
     }
 
     println!(
@@ -96,12 +133,23 @@ fn main() {
                     let messages = decode::decode_all(&payload.message);
                     for msg in &messages {
                         let is_new =
-                            tracker.update(&report.addr, report.rssi, payload.counter, msg);
+                            tracker.update(&report.addr, report.rssi, payload.counter, msg, "ble");
 
                         if is_new {
-                            output::print_new_drone(&report.addr, report.rssi);
+                            output::print_new_drone("ble", &report.addr, report.rssi);
                         }
-                        output::print_message(&report.addr, report.rssi, msg);
+                        output::print_message("ble", &report.addr, report.rssi, msg);
+
+                        if let Some(ref tx) = db_tx {
+                            let row = db::build_row(
+                                "ble",
+                                &report.addr,
+                                report.rssi,
+                                payload.counter,
+                                msg,
+                            );
+                            let _ = tx.try_send(row);
+                        }
                     }
                 }
             }
