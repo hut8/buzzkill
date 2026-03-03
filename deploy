@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cargo build --release
+sudo install -m 755 target/release/buzzkill /usr/local/bin/buzzkill
+sudo cp buzzkill.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable buzzkill
+sudo systemctl restart buzzkill
+sudo systemctl status buzzkill --no-pager
