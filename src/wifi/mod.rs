@@ -55,7 +55,7 @@ pub fn run(
                 let is_new = tracker.update(&beacon.mac, beacon.rssi, beacon.counter, msg, "wifi");
 
                 if is_new {
-                    output::print_new_drone("wifi", &beacon.mac, beacon.rssi);
+                    output::print_new_drone("wifi", &beacon.mac, beacon.rssi, None);
                 }
                 output::print_message("wifi", &beacon.mac, beacon.rssi, msg);
 
