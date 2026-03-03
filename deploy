@@ -20,7 +20,15 @@ fi
 # Create env file if it doesn't exist
 sudo mkdir -p /etc/buzzkill
 if [ ! -f /etc/buzzkill/buzzkill.env ]; then
-    printf 'DATABASE_URL=postgres://buzzkill@localhost/buzzkill\n' | sudo tee /etc/buzzkill/buzzkill.env >/dev/null
+    cat <<'ENVEOF' | sudo tee /etc/buzzkill/buzzkill.env >/dev/null
+DATABASE_URL=postgres://buzzkill@localhost/buzzkill
+# Optional: set these to enable email notifications on drone detection
+#SMTP_HOST=smtp.mailgun.org
+#SMTP_USERNAME=
+#SMTP_PASSWORD=
+#SMTP_FROM=buzzkill@example.com
+#NOTIFY_TO=you@example.com
+ENVEOF
     sudo chmod 600 /etc/buzzkill/buzzkill.env
     echo "Created /etc/buzzkill/buzzkill.env"
 fi

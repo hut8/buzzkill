@@ -1,4 +1,5 @@
 mod db;
+mod email;
 mod hci;
 mod output;
 mod remoteid;
@@ -68,6 +69,18 @@ fn main() {
         None
     };
 
+    // Set up email notifier if SMTP_HOST is set
+    let email_tx: Option<mpsc::SyncSender<email::DroneAlert>> =
+        if std::env::var("SMTP_HOST").is_ok() {
+            let (tx, rx) = mpsc::sync_channel::<email::DroneAlert>(100);
+            email::spawn_notifier(rx);
+            log::info!("Email notifications enabled");
+            Some(tx)
+        } else {
+            log::info!("SMTP_HOST not set — email notifications disabled");
+            None
+        };
+
     log::info!("Opening HCI socket on {} (dev_id={})", adapter, dev_id);
     let sock = HciSocket::open(dev_id).unwrap_or_else(|e| {
         eprintln!(
@@ -104,8 +117,9 @@ fn main() {
     // Spawn WiFi scanner thread if requested
     if let Some(iface) = wifi_iface {
         let wifi_db_tx = db_tx.clone();
+        let wifi_email_tx = email_tx.clone();
         std::thread::spawn(move || {
-            wifi::run(&iface, &RUNNING, wifi_db_tx, expiry_secs);
+            wifi::run(&iface, &RUNNING, wifi_db_tx, wifi_email_tx, expiry_secs);
         });
     }
 
@@ -160,6 +174,13 @@ fn main() {
                                 report.rssi,
                                 Some(report.addr_type),
                             );
+                            if let Some(ref tx) = email_tx {
+                                let _ = tx.try_send(email::DroneAlert {
+                                    transport: "ble",
+                                    mac: report.addr,
+                                    rssi: report.rssi,
+                                });
+                            }
                         }
                         output::print_message("ble", &report.addr, report.rssi, msg);
 
