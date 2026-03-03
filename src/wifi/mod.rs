@@ -59,11 +59,13 @@ pub fn run(
                 if is_new {
                     output::print_new_drone("wifi", &beacon.mac, beacon.rssi, None);
                     if let Some(ref tx) = email_tx {
-                        let _ = tx.try_send(email::DroneAlert {
+                        if let Err(e) = tx.try_send(email::DroneAlert {
                             transport: "wifi",
                             mac: beacon.mac,
                             rssi: beacon.rssi,
-                        });
+                        }) {
+                            log::error!("Email notification dropped: {}", e);
+                        }
                     }
                 }
                 output::print_message("wifi", &beacon.mac, beacon.rssi, msg);

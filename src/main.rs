@@ -69,17 +69,24 @@ fn main() {
         None
     };
 
-    // Set up email notifier if SMTP_HOST is set
-    let email_tx: Option<mpsc::SyncSender<email::DroneAlert>> =
-        if std::env::var("SMTP_HOST").is_ok() {
+    // Set up email notifier if SMTP config is present
+    let email_tx: Option<mpsc::SyncSender<email::DroneAlert>> = match email::SmtpConfig::from_env()
+    {
+        Ok(Some(config)) => {
             let (tx, rx) = mpsc::sync_channel::<email::DroneAlert>(100);
-            email::spawn_notifier(rx);
+            email::spawn_notifier(config, rx);
             log::info!("Email notifications enabled");
             Some(tx)
-        } else {
+        }
+        Ok(None) => {
             log::info!("SMTP_HOST not set — email notifications disabled");
             None
-        };
+        }
+        Err(e) => {
+            log::error!("Email notification config error: {}", e);
+            None
+        }
+    };
 
     log::info!("Opening HCI socket on {} (dev_id={})", adapter, dev_id);
     let sock = HciSocket::open(dev_id).unwrap_or_else(|e| {
@@ -175,11 +182,13 @@ fn main() {
                                 Some(report.addr_type),
                             );
                             if let Some(ref tx) = email_tx {
-                                let _ = tx.try_send(email::DroneAlert {
+                                if let Err(e) = tx.try_send(email::DroneAlert {
                                     transport: "ble",
                                     mac: report.addr,
                                     rssi: report.rssi,
-                                });
+                                }) {
+                                    log::error!("Email notification dropped: {}", e);
+                                }
                             }
                         }
                         output::print_message("ble", &report.addr, report.rssi, msg);
