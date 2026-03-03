@@ -6,6 +6,7 @@ use std::sync::mpsc;
 use std::time::Instant;
 
 use crate::db::{self, SightingRow};
+use crate::email;
 use crate::output;
 use crate::remoteid::decode;
 use crate::tracker::Tracker;
@@ -17,6 +18,7 @@ pub fn run(
     iface: &str,
     running: &'static AtomicBool,
     db_tx: Option<mpsc::SyncSender<SightingRow>>,
+    email_tx: Option<mpsc::SyncSender<email::DroneAlert>>,
     expiry_secs: u64,
 ) {
     let sock = match WifiMonSocket::open(iface) {
@@ -56,6 +58,15 @@ pub fn run(
 
                 if is_new {
                     output::print_new_drone("wifi", &beacon.mac, beacon.rssi, None);
+                    if let Some(ref tx) = email_tx {
+                        if let Err(e) = tx.try_send(email::DroneAlert {
+                            transport: "wifi",
+                            mac: beacon.mac,
+                            rssi: beacon.rssi,
+                        }) {
+                            log::error!("Email notification dropped: {}", e);
+                        }
+                    }
                 }
                 output::print_message("wifi", &beacon.mac, beacon.rssi, msg);
 
