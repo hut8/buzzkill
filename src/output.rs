@@ -12,9 +12,12 @@ pub fn format_mac(mac: &[u8; 6]) -> String {
 /// Print a new drone discovery.
 pub fn print_new_drone(transport: &str, mac: &[u8; 6], rssi: i8, addr_type: Option<u8>) {
     let addr_kind = match addr_type {
-        Some(0) => " (public)",
-        Some(1) => " (random)",
-        _ => "",
+        Some(0) => " (public)".to_string(),
+        Some(1) => " (random)".to_string(),
+        Some(2) => " (public identity)".to_string(),
+        Some(3) => " (random identity)".to_string(),
+        Some(other) => format!(" (addr_type:{})", other),
+        None => String::new(),
     };
     println!(
         "[+] NEW DRONE  [{}] mac={}{} rssi={}dBm",

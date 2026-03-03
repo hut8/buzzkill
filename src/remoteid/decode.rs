@@ -214,7 +214,7 @@ impl DroneIdMessage {
             Self::SelfId(_) => MessageType::SelfId,
             Self::System(_) => MessageType::System,
             Self::OperatorId(_) => MessageType::OperatorId,
-            Self::Unknown { msg_type, .. } => MessageType::from_nibble(*msg_type),
+            Self::Unknown { msg_type, .. } => MessageType::Unknown(*msg_type),
         }
     }
 }
