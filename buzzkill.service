@@ -4,12 +4,16 @@ After=network.target postgresql.service
 
 [Service]
 Type=simple
-User=root
-Environment=DATABASE_URL=postgres://buzzkill:buzzkill@localhost/buzzkill
+User=buzzkill
+Group=buzzkill
+EnvironmentFile=/etc/buzzkill/buzzkill.env
 Environment=RUST_LOG=info
 ExecStartPre=/usr/sbin/iw dev wlan0 set type monitor
 ExecStartPre=/usr/sbin/ip link set wlan0 up
 ExecStart=/usr/local/bin/buzzkill hci0 --wifi wlan0
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=true
 Restart=on-failure
 RestartSec=5
 

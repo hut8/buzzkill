@@ -31,17 +31,30 @@ fn main() {
         std::process::exit(1);
     });
 
-    let expiry_secs: u64 = args
-        .iter()
-        .position(|a| a == "--expiry")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(60);
+    let expiry_secs: u64 = match args.iter().position(|a| a == "--expiry") {
+        Some(i) => match args.get(i + 1) {
+            Some(val) => val.parse().unwrap_or_else(|_| {
+                eprintln!("Invalid value for --expiry: {}", val);
+                std::process::exit(1);
+            }),
+            None => {
+                eprintln!("Missing value for --expiry");
+                std::process::exit(1);
+            }
+        },
+        None => 60,
+    };
 
-    let wifi_iface: Option<String> = args
-        .iter()
-        .position(|a| a == "--wifi")
-        .and_then(|i| args.get(i + 1).cloned());
+    let wifi_iface: Option<String> = match args.iter().position(|a| a == "--wifi") {
+        Some(i) => match args.get(i + 1) {
+            Some(val) => Some(val.clone()),
+            None => {
+                eprintln!("Missing value for --wifi");
+                std::process::exit(1);
+            }
+        },
+        None => None,
+    };
 
     // Set up DB channel if DATABASE_URL is set
     let db_tx: Option<mpsc::SyncSender<db::SightingRow>> = if std::env::var("DATABASE_URL").is_ok()

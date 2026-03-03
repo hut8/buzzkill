@@ -163,13 +163,14 @@ fn extract_rssi(frame: &[u8], rt_len: usize) -> i8 {
         offset += 4;
     }
 
-    // Bit 4: FHSS (2 bytes)
+    // Bit 4: FHSS (2 bytes, aligned to 2)
     if present & (1 << 4) != 0 {
+        offset = (offset + 1) & !1; // align to 2
         offset += 2;
     }
 
     // Bit 5: dBm Antenna Signal (1 byte) - this is what we want
-    if offset < frame.len() {
+    if offset < rt_len && offset < frame.len() {
         frame[offset] as i8
     } else {
         0

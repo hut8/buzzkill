@@ -12,24 +12,18 @@ pub struct WifiMonSocket {
 impl WifiMonSocket {
     /// Open a raw packet socket bound to the given interface (must be in monitor mode).
     pub fn open(iface: &str) -> io::Result<Self> {
+        // Resolve interface index before opening the socket to avoid FD leaks on error
+        let ifindex = ifname_to_index(iface)?;
+
         let fd = unsafe {
             libc::socket(
                 libc::AF_PACKET,
                 libc::SOCK_RAW | libc::SOCK_CLOEXEC,
-                (ETH_P_ALL as u32).to_be() as i32,
+                ETH_P_ALL.to_be() as i32,
             )
         };
         if fd < 0 {
             return Err(io::Error::last_os_error());
-        }
-
-        let ifindex = ifname_to_index(iface)?;
-        if ifindex == 0 {
-            unsafe { libc::close(fd) };
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("interface {} not found", iface),
-            ));
         }
 
         let mut addr: libc::sockaddr_ll = unsafe { mem::zeroed() };
