@@ -1,6 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Create buzzkill system user if it doesn't exist
+if ! id buzzkill &>/dev/null; then
+    sudo useradd -r -s /usr/sbin/nologin buzzkill
+    echo "Created system user: buzzkill"
+fi
+
+# Create buzzkill PostgreSQL role and database if they don't exist
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='buzzkill'" | grep -q 1; then
+    sudo -u postgres psql -c "CREATE ROLE buzzkill WITH LOGIN;"
+    echo "Created PostgreSQL role: buzzkill"
+fi
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='buzzkill'" | grep -q 1; then
+    sudo -u postgres psql -c "CREATE DATABASE buzzkill OWNER buzzkill;"
+    echo "Created PostgreSQL database: buzzkill"
+fi
+
+# Create env file if it doesn't exist
+sudo mkdir -p /etc/buzzkill
+if [ ! -f /etc/buzzkill/buzzkill.env ]; then
+    printf 'DATABASE_URL=postgres://buzzkill@localhost/buzzkill\n' | sudo tee /etc/buzzkill/buzzkill.env >/dev/null
+    sudo chmod 600 /etc/buzzkill/buzzkill.env
+    echo "Created /etc/buzzkill/buzzkill.env"
+fi
+
 cargo build --release
 sudo install -m 755 target/release/buzzkill /usr/local/bin/buzzkill
 sudo cp buzzkill.service /etc/systemd/system/
