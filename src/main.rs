@@ -143,13 +143,23 @@ fn main() {
             for report in &reports {
                 let payloads = filter::extract_remote_id(&report.data);
                 for payload in &payloads {
+                    log::debug!(
+                        "Remote ID payload from {} event_type=0x{:02X}",
+                        output::format_mac(&report.addr),
+                        report.event_type
+                    );
                     let messages = decode::decode_all(&payload.message);
                     for msg in &messages {
                         let is_new =
                             tracker.update(&report.addr, report.rssi, payload.counter, msg, "ble");
 
                         if is_new {
-                            output::print_new_drone("ble", &report.addr, report.rssi);
+                            output::print_new_drone(
+                                "ble",
+                                &report.addr,
+                                report.rssi,
+                                Some(report.addr_type),
+                            );
                         }
                         output::print_message("ble", &report.addr, report.rssi, msg);
 

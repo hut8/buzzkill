@@ -14,7 +14,7 @@ pub enum MessageType {
 }
 
 impl MessageType {
-    fn from_nibble(val: u8) -> Self {
+    pub fn from_nibble(val: u8) -> Self {
         match val {
             0x0 => Self::BasicId,
             0x1 => Self::Location,
@@ -222,20 +222,18 @@ impl DroneIdMessage {
 /// Decode a 25-byte OpenDroneID message.
 pub fn decode_message(data: &[u8; 25]) -> DroneIdMessage {
     let header = data[0];
-    let msg_type = (header >> 4) & 0x0F;
+    let msg_type_nibble = (header >> 4) & 0x0F;
     let proto_version = header & 0x0F;
-    let _ = proto_version; // acknowledged but not version-gated
 
-    match msg_type {
-        0x0 => decode_basic_id(data),
-        0x1 => decode_location(data),
-        0x2 => decode_auth(data),
-        0x3 => decode_self_id(data),
-        0x4 => decode_system(data),
-        0x5 => decode_operator_id(data),
-        // 0xF Message Pack: would contain nested messages, skip for now
+    match MessageType::from_nibble(msg_type_nibble) {
+        MessageType::BasicId => decode_basic_id(data),
+        MessageType::Location => decode_location(data),
+        MessageType::Auth => decode_auth(data),
+        MessageType::SelfId => decode_self_id(data),
+        MessageType::System => decode_system(data),
+        MessageType::OperatorId => decode_operator_id(data),
         _ => DroneIdMessage::Unknown {
-            msg_type,
+            msg_type: msg_type_nibble,
             proto_version,
         },
     }
@@ -244,8 +242,7 @@ pub fn decode_message(data: &[u8; 25]) -> DroneIdMessage {
 /// Decode multiple messages from a single 25-byte payload if it's a Message Pack,
 /// otherwise decode the single message. Returns a vec of decoded messages.
 pub fn decode_all(data: &[u8; 25]) -> Vec<DroneIdMessage> {
-    let msg_type = (data[0] >> 4) & 0x0F;
-    if msg_type == 0xF {
+    if MessageType::from_nibble((data[0] >> 4) & 0x0F) == MessageType::MessagePack {
         decode_message_pack(data)
     } else {
         vec![decode_message(data)]

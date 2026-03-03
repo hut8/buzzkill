@@ -51,6 +51,6 @@ CREATE TABLE IF NOT EXISTS sightings (
     auth_data   BYTEA
 );
 
-CREATE INDEX idx_sightings_mac ON sightings (mac);
-CREATE INDEX idx_sightings_ts  ON sightings (ts);
-CREATE INDEX idx_sightings_ua_id ON sightings (ua_id) WHERE ua_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sightings_mac ON sightings (mac);
+CREATE INDEX IF NOT EXISTS idx_sightings_ts  ON sightings (ts);
+CREATE INDEX IF NOT EXISTS idx_sightings_ua_id ON sightings (ua_id) WHERE ua_id IS NOT NULL;

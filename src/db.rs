@@ -167,12 +167,11 @@ pub fn spawn_writer(rx: mpsc::Receiver<SightingRow>) {
                 .expect("failed to connect to database");
 
             // Run migration
-            if let Err(e) = sqlx::query(include_str!("../migrations/001_create_sightings.sql"))
+            if let Err(e) = sqlx::raw_sql(include_str!("../migrations/001_create_sightings.sql"))
                 .execute(&pool)
                 .await
             {
-                log::error!("DB migration failed: {}", e);
-                return;
+                panic!("DB migration failed: {}", e);
             }
 
             log::info!("DB writer connected and migration applied");

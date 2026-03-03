@@ -95,10 +95,10 @@ impl Tracker {
         let expiry = std::time::Duration::from_secs(self.expiry_secs);
         let mut expired = Vec::new();
 
-        self.drones.retain(|mac, state| {
+        self.drones.retain(|_mac, state| {
             if now.duration_since(state.last_seen) > expiry {
-                output::print_lost(mac, state);
-                expired.push(*mac);
+                output::print_lost(state);
+                expired.push(state.mac);
                 false
             } else {
                 true

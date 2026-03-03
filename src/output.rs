@@ -10,11 +10,20 @@ pub fn format_mac(mac: &[u8; 6]) -> String {
 }
 
 /// Print a new drone discovery.
-pub fn print_new_drone(transport: &str, mac: &[u8; 6], rssi: i8) {
+pub fn print_new_drone(transport: &str, mac: &[u8; 6], rssi: i8, addr_type: Option<u8>) {
+    let addr_kind = match addr_type {
+        Some(0) => " (public)".to_string(),
+        Some(1) => " (random)".to_string(),
+        Some(2) => " (public identity)".to_string(),
+        Some(3) => " (random identity)".to_string(),
+        Some(other) => format!(" (addr_type:{})", other),
+        None => String::new(),
+    };
     println!(
-        "[+] NEW DRONE  [{}] mac={} rssi={}dBm",
+        "[+] NEW DRONE  [{}] mac={}{} rssi={}dBm",
         transport,
         format_mac(mac),
+        addr_kind,
         rssi,
     );
 }
@@ -73,29 +82,35 @@ pub fn print_message(transport: &str, mac: &[u8; 6], rssi: i8, msg: &DroneIdMess
                 transport, mac_str, auth.page_number, auth.page_count
             );
         }
-        DroneIdMessage::Unknown { msg_type, .. } => {
+        DroneIdMessage::Unknown {
+            msg_type,
+            proto_version,
+        } => {
             log::debug!(
-                "  [Unknown]    [{}] mac={} msg_type=0x{:X}",
+                "  [Unknown]    [{}] mac={} msg_type=0x{:X} proto_version={}",
                 transport,
                 mac_str,
-                msg_type
+                msg_type,
+                proto_version
             );
         }
     }
 }
 
 /// Print drone lost contact.
-pub fn print_lost(mac: &[u8; 6], state: &DroneState) {
+pub fn print_lost(state: &DroneState) {
     let id = state
         .basic_id
         .as_ref()
         .map(|b| b.ua_id.as_str())
         .unwrap_or("unknown");
+    let duration = state.last_seen.duration_since(state.first_seen);
     println!(
-        "[-] LOST DRONE [{}] mac={} id=\"{}\" msgs={}",
+        "[-] LOST DRONE [{}] mac={} id=\"{}\" msgs={} tracked={:.0}s",
         state.transport,
-        format_mac(mac),
+        format_mac(&state.mac),
         id,
         state.msg_count,
+        duration.as_secs_f64(),
     );
 }
