@@ -9,7 +9,6 @@
 	let dark = $state(true);
 
 	$effect(() => {
-		// Initialize from localStorage or default to dark
 		const stored = localStorage.getItem('theme');
 		if (stored === 'light') {
 			dark = false;
@@ -38,14 +37,14 @@
 
 <div class="flex h-full flex-col">
 	<AppBar>
-		{#snippet lead()}
-			<a href="/" class="flex items-center gap-2 text-xl font-bold">
-				<Radar class="h-6 w-6" />
-				Buzzkill
-			</a>
-		{/snippet}
-		{#snippet trail()}
-			<div class="flex items-center gap-4">
+		<AppBar.Toolbar>
+			<AppBar.Lead>
+				<a href="/" class="flex items-center gap-2 text-xl font-bold">
+					<Radar class="h-6 w-6" />
+					Buzzkill
+				</a>
+			</AppBar.Lead>
+			<AppBar.Trail class="flex items-center gap-4">
 				{#if status}
 					<div class="flex items-center gap-3 text-sm">
 						<span class="flex items-center gap-1" class:opacity-30={!status.bluetooth}>
@@ -58,15 +57,19 @@
 						</span>
 					</div>
 				{/if}
-				<button onclick={toggleTheme} class="btn-icon btn-icon-sm preset-tonal" aria-label="Toggle theme">
+				<button
+					class="btn btn-sm preset-tonal-surface-500"
+					onclick={toggleTheme}
+					title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+				>
 					{#if dark}
-						<Sun class="h-4 w-4" />
+						<Sun size={18} />
 					{:else}
-						<Moon class="h-4 w-4" />
+						<Moon size={18} />
 					{/if}
 				</button>
-			</div>
-		{/snippet}
+			</AppBar.Trail>
+		</AppBar.Toolbar>
 	</AppBar>
 
 	<main class="flex-1 overflow-auto">
