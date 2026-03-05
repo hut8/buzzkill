@@ -1,11 +1,15 @@
 use std::sync::{Arc, Mutex};
 
+use std::time::Instant;
+
 use crate::output;
 use crate::tracker::Tracker;
 use axum::{
+    body::Body,
     extract::State,
-    http::{HeaderMap, StatusCode, Uri},
-    response::IntoResponse,
+    http::{HeaderMap, Request, StatusCode, Uri},
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::get,
     Router,
 };
@@ -191,6 +195,26 @@ async fn handle_static_file(uri: Uri) -> impl IntoResponse {
     (StatusCode::NOT_FOUND, "Not Found").into_response()
 }
 
+async fn request_logging(request: Request<Body>, next: Next) -> Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_string();
+    let start = Instant::now();
+
+    let response = next.run(request).await;
+    let duration = start.elapsed();
+    let status = response.status().as_u16();
+
+    log::info!(
+        "{} {} {} {:.2}ms",
+        method,
+        path,
+        status,
+        duration.as_secs_f64() * 1000.0
+    );
+
+    response
+}
+
 pub async fn start_web_server(tracker: Arc<Mutex<Tracker>>, port: u16, scan_config: ScanConfig) {
     let state = AppState {
         tracker,
@@ -204,7 +228,8 @@ pub async fn start_web_server(tracker: Arc<Mutex<Tracker>>, port: u16, scan_conf
     let app = Router::new()
         .nest("/api", api_router)
         .fallback(handle_static_file)
-        .with_state(state);
+        .with_state(state)
+        .layer(middleware::from_fn(request_logging));
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port))
         .await
