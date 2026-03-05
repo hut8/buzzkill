@@ -6,6 +6,7 @@ use std::sync::mpsc;
 use std::time::Instant;
 
 use crate::db::{self, SightingRow};
+use crate::gps::GpsHandle;
 use crate::output;
 use crate::remoteid::decode;
 use crate::tracker::Tracker;
@@ -18,6 +19,7 @@ pub fn run(
     running: &'static AtomicBool,
     db_tx: Option<mpsc::SyncSender<SightingRow>>,
     expiry_secs: u64,
+    gps: GpsHandle,
 ) {
     let sock = match WifiMonSocket::open(iface) {
         Ok(s) => s,
@@ -51,16 +53,29 @@ pub fn run(
 
         if let Some(beacon) = parse_remote_id_beacon(frame) {
             let messages = decode::decode_all(&beacon.message);
+            let gps_fix = gps.lock().ok().and_then(|g| g.clone());
             for msg in &messages {
                 let is_new = tracker.update(&beacon.mac, beacon.rssi, beacon.counter, msg, "wifi");
 
                 if is_new {
-                    output::print_new_drone("wifi", &beacon.mac, beacon.rssi, None);
+                    let drone_loc = tracker
+                        .drones
+                        .get(&beacon.mac)
+                        .and_then(|d| d.location.as_ref())
+                        .map(|l| (l.latitude, l.longitude));
+                    output::print_new_drone("wifi", &beacon.mac, beacon.rssi, None, drone_loc, &gps);
                 }
-                output::print_message("wifi", &beacon.mac, beacon.rssi, msg);
+                output::print_message("wifi", &beacon.mac, beacon.rssi, msg, &gps);
 
                 if let Some(ref tx) = db_tx {
-                    let row = db::build_row("wifi", &beacon.mac, beacon.rssi, beacon.counter, msg);
+                    let row = db::build_row(
+                        "wifi",
+                        &beacon.mac,
+                        beacon.rssi,
+                        beacon.counter,
+                        msg,
+                        gps_fix.as_ref(),
+                    );
                     let _ = tx.try_send(row);
                 }
             }

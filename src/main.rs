@@ -1,4 +1,5 @@
 mod db;
+mod gps;
 mod hci;
 mod output;
 mod remoteid;
@@ -101,11 +102,15 @@ fn main() {
         );
     }
 
+    // Start GPS reader
+    let gps = gps::spawn(&RUNNING);
+
     // Spawn WiFi scanner thread if requested
     if let Some(iface) = wifi_iface {
         let wifi_db_tx = db_tx.clone();
+        let wifi_gps = gps.clone();
         std::thread::spawn(move || {
-            wifi::run(&iface, &RUNNING, wifi_db_tx, expiry_secs);
+            wifi::run(&iface, &RUNNING, wifi_db_tx, expiry_secs, wifi_gps);
         });
     }
 
@@ -149,19 +154,27 @@ fn main() {
                         report.event_type
                     );
                     let messages = decode::decode_all(&payload.message);
+                    let gps_fix = gps.lock().ok().and_then(|g| g.clone());
                     for msg in &messages {
                         let is_new =
                             tracker.update(&report.addr, report.rssi, payload.counter, msg, "ble");
 
                         if is_new {
+                            let drone_loc = tracker
+                                .drones
+                                .get(&report.addr)
+                                .and_then(|d| d.location.as_ref())
+                                .map(|l| (l.latitude, l.longitude));
                             output::print_new_drone(
                                 "ble",
                                 &report.addr,
                                 report.rssi,
                                 Some(report.addr_type),
+                                drone_loc,
+                                &gps,
                             );
                         }
-                        output::print_message("ble", &report.addr, report.rssi, msg);
+                        output::print_message("ble", &report.addr, report.rssi, msg, &gps);
 
                         if let Some(ref tx) = db_tx {
                             let row = db::build_row(
@@ -170,6 +183,7 @@ fn main() {
                                 report.rssi,
                                 payload.counter,
                                 msg,
+                                gps_fix.as_ref(),
                             );
                             let _ = tx.try_send(row);
                         }

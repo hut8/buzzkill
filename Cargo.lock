@@ -117,9 +117,12 @@ name = "buzzkill"
 version = "0.1.0"
 dependencies = [
  "env_logger",
+ "gpsd_proto",
  "libc",
  "log",
  "nix",
+ "serde",
+ "serde_json",
  "sqlx",
  "tokio",
 ]
@@ -434,6 +437,18 @@ dependencies = [
  "cfg-if",
  "libc",
  "wasi",
+]
+
+[[package]]
+name = "gpsd_proto"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "247df1fffe6bc378377d6cf894dac08aef2194a6c1c9e2f173c3c10979fa5ca5"
+dependencies = [
+ "log",
+ "serde",
+ "serde_derive",
+ "serde_json",
 ]
 
 [[package]]
