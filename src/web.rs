@@ -237,21 +237,24 @@ async fn request_logging(request: Request<Body>, next: Next) -> Response {
     response
 }
 
+fn build_router(state: AppState) -> Router {
+    let api_router = Router::new()
+        .route("/drones", get(api_drones))
+        .route("/status", get(api_status));
+
+    Router::new()
+        .nest("/api", api_router)
+        .fallback(handle_static_file)
+        .with_state(state)
+}
+
 pub async fn start_web_server(tracker: Arc<Mutex<Tracker>>, port: u16, scan_config: ScanConfig) {
     let state = AppState {
         tracker,
         scan_config,
     };
 
-    let api_router = Router::new()
-        .route("/drones", get(api_drones))
-        .route("/status", get(api_status));
-
-    let app = Router::new()
-        .nest("/api", api_router)
-        .fallback(handle_static_file)
-        .with_state(state)
-        .layer(middleware::from_fn(request_logging));
+    let app = build_router(state).layer(middleware::from_fn(request_logging));
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port))
         .await
@@ -270,4 +273,119 @@ pub async fn start_web_server(tracker: Arc<Mutex<Tracker>>, port: u16, scan_conf
     .unwrap_or_else(|e| {
         log::error!("Web server error: {}", e);
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tower::util::ServiceExt;
+
+    fn test_state() -> AppState {
+        AppState {
+            tracker: Arc::new(Mutex::new(Tracker::new(60))),
+            scan_config: ScanConfig {
+                bluetooth: true,
+                wifi: false,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn test_api_drones_empty() {
+        let app = build_router(test_state());
+        let response = app
+            .oneshot(Request::get("/api/drones").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let drones: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert!(drones.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_api_drones_with_data() {
+        let state = test_state();
+        {
+            let mut tracker = state.tracker.lock().unwrap();
+            let mac = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF];
+            let msg = crate::remoteid::decode::DroneIdMessage::BasicId(
+                crate::remoteid::decode::BasicId {
+                    id_type: crate::remoteid::decode::IdType::SerialNumber,
+                    ua_type: crate::remoteid::decode::UaType::HelicopterOrMultirotor,
+                    ua_id: "TEST123".to_string(),
+                },
+            );
+            tracker.update(&mac, -60, 1, &msg, "ble");
+        }
+
+        let app = build_router(state);
+        let response = app
+            .oneshot(Request::get("/api/drones").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let drones: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(drones.len(), 1);
+        assert_eq!(drones[0]["mac"], "AA:BB:CC:DD:EE:FF");
+        assert_eq!(drones[0]["transport"], "ble");
+        assert_eq!(drones[0]["rssi"], -60);
+        assert_eq!(drones[0]["basic_id"]["ua_id"], "TEST123");
+    }
+
+    #[tokio::test]
+    async fn test_api_status() {
+        let app = build_router(test_state());
+        let response = app
+            .oneshot(Request::get("/api/status").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let status: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(status["bluetooth"], true);
+        assert_eq!(status["wifi"], false);
+    }
+
+    #[tokio::test]
+    async fn test_spa_fallback() {
+        let app = build_router(test_state());
+        let response = app
+            .oneshot(
+                Request::get("/some/client/route")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // SPA fallback serves index.html (or 404 if web/build is empty in tests)
+        let status = response.status();
+        assert!(status == StatusCode::OK || status == StatusCode::NOT_FOUND);
+        if status == StatusCode::OK {
+            let ct = response.headers().get("content-type").unwrap();
+            assert_eq!(ct, "text/html");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_missing_file_with_extension_returns_404() {
+        let app = build_router(test_state());
+        let response: Response = app
+            .oneshot(Request::get("/nonexistent.js").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
 }
