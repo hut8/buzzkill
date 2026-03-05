@@ -3,6 +3,7 @@ pub mod socket;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::db::{self, SightingRow};
@@ -19,7 +20,7 @@ pub fn run(
     running: &'static AtomicBool,
     db_tx: Option<mpsc::SyncSender<SightingRow>>,
     email_tx: Option<mpsc::SyncSender<email::DroneAlert>>,
-    expiry_secs: u64,
+    tracker: Arc<Mutex<Tracker>>,
 ) {
     let sock = match WifiMonSocket::open(iface) {
         Ok(s) => s,
@@ -31,7 +32,6 @@ pub fn run(
 
     log::info!("WiFi scanner running on {}", iface);
 
-    let mut tracker = Tracker::new(expiry_secs);
     let mut buf = [0u8; 4096];
     let mut last_expire = Instant::now();
 
@@ -54,7 +54,10 @@ pub fn run(
         if let Some(beacon) = parse_remote_id_beacon(frame) {
             let messages = decode::decode_all(&beacon.message);
             for msg in &messages {
-                let is_new = tracker.update(&beacon.mac, beacon.rssi, beacon.counter, msg, "wifi");
+                let is_new = {
+                    let mut t = tracker.lock().unwrap();
+                    t.update(&beacon.mac, beacon.rssi, beacon.counter, msg, "wifi")
+                };
 
                 if is_new {
                     output::print_new_drone("wifi", &beacon.mac, beacon.rssi, None);
@@ -78,7 +81,7 @@ pub fn run(
         }
 
         if last_expire.elapsed().as_secs() >= 5 {
-            tracker.expire();
+            tracker.lock().unwrap().expire();
             last_expire = Instant::now();
         }
     }

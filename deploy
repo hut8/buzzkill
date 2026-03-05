@@ -1,26 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Create buzzkill system user if it doesn't exist
-if ! id buzzkill &>/dev/null; then
-    sudo useradd -r -s /usr/sbin/nologin buzzkill
-    echo "Created system user: buzzkill"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVICE_NAME="buzzkill"
+BINARY_PATH="/usr/local/bin/${SERVICE_NAME}"
+SERVICE_FILE="${SCRIPT_DIR}/${SERVICE_NAME}.service"
+SERVICE_USER="buzzkill"
+
+echo "==> Building ${SERVICE_NAME} in release mode..."
+cd "${SCRIPT_DIR}"
+cargo build --release
+
+echo "==> Ensuring ${SERVICE_USER} system user exists..."
+if ! id -u "${SERVICE_USER}" &>/dev/null; then
+    sudo useradd --system --no-create-home --shell /usr/sbin/nologin "${SERVICE_USER}"
+    echo "    Created system user: ${SERVICE_USER}"
+else
+    echo "    User ${SERVICE_USER} already exists"
 fi
 
 # Create buzzkill PostgreSQL role and database if they don't exist
-if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='buzzkill'" | grep -q 1; then
-    sudo -u postgres psql -c "CREATE ROLE buzzkill WITH LOGIN;"
-    echo "Created PostgreSQL role: buzzkill"
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='${SERVICE_USER}'" | grep -q 1; then
+    sudo -u postgres psql -c "CREATE ROLE ${SERVICE_USER} WITH LOGIN;"
+    echo "    Created PostgreSQL role: ${SERVICE_USER}"
 fi
-if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='buzzkill'" | grep -q 1; then
-    sudo -u postgres psql -c "CREATE DATABASE buzzkill OWNER buzzkill;"
-    echo "Created PostgreSQL database: buzzkill"
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='${SERVICE_NAME}'" | grep -q 1; then
+    sudo -u postgres psql -c "CREATE DATABASE ${SERVICE_NAME} OWNER ${SERVICE_USER};"
+    echo "    Created PostgreSQL database: ${SERVICE_NAME}"
 fi
 
-# Create env file if it doesn't exist
-sudo mkdir -p /etc/buzzkill
-if [ ! -f /etc/buzzkill/buzzkill.env ]; then
-    cat <<'ENVEOF' | sudo tee /etc/buzzkill/buzzkill.env >/dev/null
+ENV_DIR="/etc/${SERVICE_NAME}"
+ENV_FILE="${ENV_DIR}/${SERVICE_NAME}.env"
+
+echo "==> Setting up credentials directory..."
+sudo mkdir -p "${ENV_DIR}"
+if [ ! -f "${ENV_FILE}" ]; then
+    echo "    Creating ${ENV_FILE} with placeholder credentials..."
+    sudo tee "${ENV_FILE}" > /dev/null <<'ENVEOF'
 DATABASE_URL=postgres://buzzkill@localhost/buzzkill
 # Optional: set these to enable email notifications on drone detection
 #SMTP_HOST=smtp.mailgun.org
@@ -29,14 +45,44 @@ DATABASE_URL=postgres://buzzkill@localhost/buzzkill
 #SMTP_FROM=buzzkill@example.com
 #NOTIFY_TO=you@example.com
 ENVEOF
-    sudo chmod 600 /etc/buzzkill/buzzkill.env
-    echo "Created /etc/buzzkill/buzzkill.env"
+    echo "    *** Review ${ENV_FILE} and update if needed ***"
+else
+    echo "    ${ENV_FILE} already exists, not overwriting"
 fi
+sudo chown root:${SERVICE_USER} "${ENV_FILE}"
+sudo chmod 640 "${ENV_FILE}"
 
-cargo build --release
-sudo install -m 755 target/release/buzzkill /usr/local/bin/buzzkill
-sudo cp buzzkill.service /etc/systemd/system/
+echo "==> Stopping ${SERVICE_NAME} service..."
+sudo systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
+
+echo "==> Installing binary to ${BINARY_PATH}..."
+sudo cp "${SCRIPT_DIR}/target/release/${SERVICE_NAME}" "${BINARY_PATH}"
+sudo chmod 755 "${BINARY_PATH}"
+
+CADDY_CONF="/etc/caddy/Caddyfile"
+CADDY_INCLUDE="/etc/caddy/Caddyfile.${SERVICE_NAME}"
+IMPORT_LINE="import /etc/caddy/Caddyfile.${SERVICE_NAME}"
+
+echo "==> Installing Caddyfile..."
+sudo cp "${SCRIPT_DIR}/Caddyfile" "${CADDY_INCLUDE}"
+if [ ! -f "${CADDY_CONF}" ]; then
+    echo "${IMPORT_LINE}" | sudo tee "${CADDY_CONF}" > /dev/null
+    echo "    Created ${CADDY_CONF} with import directive"
+elif ! grep -qF "${IMPORT_LINE}" "${CADDY_CONF}"; then
+    echo "${IMPORT_LINE}" | sudo tee -a "${CADDY_CONF}" > /dev/null
+    echo "    Added import directive to ${CADDY_CONF}"
+else
+    echo "    Import directive already present in ${CADDY_CONF}"
+fi
+sudo systemctl reload caddy
+
+echo "==> Installing systemd service..."
+sudo cp "${SERVICE_FILE}" "/etc/systemd/system/${SERVICE_NAME}.service"
 sudo systemctl daemon-reload
-sudo systemctl enable buzzkill
-sudo systemctl restart buzzkill
-sudo systemctl status buzzkill --no-pager
+sudo systemctl enable "${SERVICE_NAME}"
+
+echo "==> Starting ${SERVICE_NAME} service..."
+sudo systemctl restart "${SERVICE_NAME}"
+
+echo "==> Done. Status:"
+sudo systemctl status "${SERVICE_NAME}" --no-pager

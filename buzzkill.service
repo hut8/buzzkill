@@ -11,8 +11,8 @@ Environment=RUST_LOG=info
 # Uncomment for WiFi Remote ID scanning (requires monitor-mode capable adapter)
 #ExecStartPre=/usr/sbin/iw dev wlan0 set type monitor
 #ExecStartPre=/usr/sbin/ip link set wlan0 up
-ExecStart=/usr/local/bin/buzzkill hci0
-# ExecStart=/usr/local/bin/buzzkill hci0 --wifi wlan0
+ExecStart=/usr/local/bin/buzzkill hci0 --port 4200
+# ExecStart=/usr/local/bin/buzzkill hci0 --wifi wlan0 --port 4200
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 NoNewPrivileges=true

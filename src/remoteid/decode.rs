@@ -44,7 +44,7 @@ impl fmt::Display for MessageType {
 }
 
 /// ID Type for Basic ID message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum IdType {
     None,
     SerialNumber,
@@ -81,7 +81,7 @@ impl fmt::Display for IdType {
 }
 
 /// UA (Unmanned Aircraft) type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum UaType {
     None,
     Aeroplane,
@@ -133,7 +133,7 @@ impl fmt::Display for UaType {
 }
 
 /// Decoded Basic ID message.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct BasicId {
     pub id_type: IdType,
     pub ua_type: UaType,
@@ -141,7 +141,7 @@ pub struct BasicId {
 }
 
 /// Decoded Location/Vector message.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Location {
     pub status: u8,
     pub direction: f64,            // degrees
@@ -156,7 +156,7 @@ pub struct Location {
 }
 
 /// Decoded System message.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct System {
     pub operator_latitude: f64,
     pub operator_longitude: f64,
@@ -169,7 +169,7 @@ pub struct System {
 }
 
 /// Decoded Operator ID message.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct OperatorId {
     pub operator_id_type: u8,
     pub operator_id: String,

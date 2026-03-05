@@ -1,0 +1,36 @@
+{
+	"name": "buzzkill-web",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"engines": {
+		"node": ">=24.0.0",
+		"npm": ">=11.0.0"
+	},
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+	},
+	"devDependencies": {
+		"@skeletonlabs/skeleton-svelte": "^4.12.1",
+		"@sveltejs/adapter-static": "^3.0.10",
+		"@sveltejs/kit": "^2.53.4",
+		"@sveltejs/vite-plugin-svelte": "^6.2.4",
+		"@tailwindcss/postcss": "^4.2.1",
+		"@tailwindcss/vite": "^4.2.1",
+		"svelte": "^5.53.6",
+		"svelte-check": "^4.4.4",
+		"tailwindcss": "^4.1",
+		"typescript": "^5.9.3",
+		"vite": "^7.3.1"
+	},
+	"dependencies": {
+		"@lucide/svelte": "^0.575.0",
+		"@skeletonlabs/skeleton": "^4.12.1",
+		"@skeletonlabs/tw-plugin": "^0.4.1",
+		"autoprefixer": "^10.4.27"
+	}
+}
