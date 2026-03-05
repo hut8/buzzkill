@@ -90,8 +90,8 @@ struct OperatorIdJson {
 }
 
 async fn api_drones(State(state): State<AppState>) -> impl IntoResponse {
-    let tracker = state.tracker.lock().unwrap();
     let gps_fix = state.gps.lock().ok().and_then(|g| g.clone());
+    let tracker = state.tracker.lock().unwrap();
     let now = std::time::Instant::now();
 
     let mut drones: Vec<DroneJson> = tracker

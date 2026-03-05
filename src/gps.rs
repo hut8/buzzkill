@@ -101,6 +101,8 @@ fn read_gpsd(running: &AtomicBool, handle: &GpsHandle, stream: TcpStream) -> Res
                     if let Ok(mut guard) = handle.lock() {
                         *guard = Some(fix);
                     }
+                } else if let Ok(mut guard) = handle.lock() {
+                    *guard = None;
                 }
             }
             Ok(_) => {} // Sky, Device, etc — ignore
@@ -127,8 +129,9 @@ const EARTH_RADIUS_M: f64 = 6_371_000.0;
 pub fn haversine_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let d_lat = (lat2 - lat1).to_radians();
     let d_lon = (lon2 - lon1).to_radians();
-    let a = (d_lat / 2.0).sin().powi(2)
+    let mut a = (d_lat / 2.0).sin().powi(2)
         + lat1.to_radians().cos() * lat2.to_radians().cos() * (d_lon / 2.0).sin().powi(2);
+    a = a.clamp(0.0, 1.0);
     2.0 * EARTH_RADIUS_M * a.sqrt().asin()
 }
 
@@ -157,15 +160,16 @@ pub fn clock_position(relative_deg: f64) -> String {
 /// Convert an absolute bearing to a compass direction.
 pub fn compass_direction(brg: f64) -> &'static str {
     let brg = ((brg % 360.0) + 360.0) % 360.0;
-    match brg as u32 {
-        0..=22 => "N",
-        23..=67 => "NE",
-        68..=112 => "E",
-        113..=157 => "SE",
-        158..=202 => "S",
-        203..=247 => "SW",
-        248..=292 => "W",
-        293..=337 => "NW",
+    let octant = ((brg / 45.0).round() as u32) % 8;
+    match octant {
+        0 => "N",
+        1 => "NE",
+        2 => "E",
+        3 => "SE",
+        4 => "S",
+        5 => "SW",
+        6 => "W",
+        7 => "NW",
         _ => "N",
     }
 }
