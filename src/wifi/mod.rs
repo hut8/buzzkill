@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use crate::db::{self, SightingRow};
 use crate::email;
+use crate::gps::GpsHandle;
 use crate::output;
 use crate::remoteid::decode;
 use crate::tracker::Tracker;
@@ -21,6 +22,7 @@ pub fn run(
     db_tx: Option<mpsc::SyncSender<SightingRow>>,
     email_tx: Option<mpsc::SyncSender<email::DroneAlert>>,
     tracker: Arc<Mutex<Tracker>>,
+    gps: GpsHandle,
 ) {
     let sock = match WifiMonSocket::open(iface) {
         Ok(s) => s,
@@ -53,6 +55,7 @@ pub fn run(
 
         if let Some(beacon) = parse_remote_id_beacon(frame) {
             let messages = decode::decode_all(&beacon.message);
+            let gps_fix = gps.lock().ok().and_then(|g| g.clone());
             for msg in &messages {
                 let is_new = {
                     let mut t = tracker.lock().unwrap();
@@ -60,7 +63,21 @@ pub fn run(
                 };
 
                 if is_new {
-                    output::print_new_drone("wifi", &beacon.mac, beacon.rssi, None);
+                    let drone_loc = {
+                        let t = tracker.lock().unwrap();
+                        t.drones
+                            .get(&beacon.mac)
+                            .and_then(|d| d.location.as_ref())
+                            .map(|l| (l.latitude, l.longitude))
+                    };
+                    output::print_new_drone(
+                        "wifi",
+                        &beacon.mac,
+                        beacon.rssi,
+                        None,
+                        drone_loc,
+                        gps_fix.as_ref(),
+                    );
                     if let Some(ref tx) = email_tx {
                         if let Err(e) = tx.try_send(email::DroneAlert {
                             transport: "wifi",
@@ -71,10 +88,17 @@ pub fn run(
                         }
                     }
                 }
-                output::print_message("wifi", &beacon.mac, beacon.rssi, msg);
+                output::print_message("wifi", &beacon.mac, beacon.rssi, msg, gps_fix.as_ref());
 
                 if let Some(ref tx) = db_tx {
-                    let row = db::build_row("wifi", &beacon.mac, beacon.rssi, beacon.counter, msg);
+                    let row = db::build_row(
+                        "wifi",
+                        &beacon.mac,
+                        beacon.rssi,
+                        beacon.counter,
+                        msg,
+                        gps_fix.as_ref(),
+                    );
                     let _ = tx.try_send(row);
                 }
             }

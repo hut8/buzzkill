@@ -1,6 +1,7 @@
 use std::sync::mpsc;
 use std::thread;
 
+use crate::gps::GpsFix;
 use crate::output::format_mac;
 use crate::remoteid::decode::DroneIdMessage;
 
@@ -53,6 +54,11 @@ pub struct SightingRow {
     pub auth_len: Option<i16>,
     pub auth_ts: Option<i32>,
     pub auth_data: Option<Vec<u8>>,
+
+    // Receiver location
+    pub rx_lat: Option<f64>,
+    pub rx_lon: Option<f64>,
+    pub rx_alt: Option<f64>,
 }
 
 pub fn build_row(
@@ -61,6 +67,7 @@ pub fn build_row(
     rssi: i8,
     counter: u8,
     msg: &DroneIdMessage,
+    gps_fix: Option<&GpsFix>,
 ) -> SightingRow {
     let mut row = SightingRow {
         transport,
@@ -99,6 +106,9 @@ pub fn build_row(
         auth_len: None,
         auth_ts: None,
         auth_data: None,
+        rx_lat: gps_fix.map(|f| f.lat),
+        rx_lon: gps_fix.map(|f| f.lon),
+        rx_alt: gps_fix.map(|f| f.alt),
     };
 
     match msg {
@@ -166,12 +176,19 @@ pub fn spawn_writer(rx: mpsc::Receiver<SightingRow>) {
                 .await
                 .expect("failed to connect to database");
 
-            // Run migration
+            // Run migrations
             if let Err(e) = sqlx::raw_sql(include_str!("../migrations/001_create_sightings.sql"))
                 .execute(&pool)
                 .await
             {
-                panic!("DB migration failed: {}", e);
+                panic!("DB migration 001 failed: {}", e);
+            }
+            if let Err(e) =
+                sqlx::raw_sql(include_str!("../migrations/002_add_receiver_location.sql"))
+                    .execute(&pool)
+                    .await
+            {
+                panic!("DB migration 002 failed: {}", e);
             }
 
             log::info!("DB writer connected and migration applied");
@@ -198,7 +215,8 @@ async fn insert_row(pool: &sqlx::PgPool, row: &SightingRow) -> Result<(), sqlx::
             area_ceil, area_floor, class_type, op_alt_geo,
             op_id_type, op_id,
             desc_type, description,
-            auth_type, auth_page, auth_pages, auth_len, auth_ts, auth_data
+            auth_type, auth_page, auth_pages, auth_len, auth_ts, auth_data,
+            rx_lat, rx_lon, rx_alt
         ) VALUES (
             $1, $2::macaddr, $3, $4, $5,
             $6, $7, $8,
@@ -208,7 +226,8 @@ async fn insert_row(pool: &sqlx::PgPool, row: &SightingRow) -> Result<(), sqlx::
             $23, $24, $25, $26,
             $27, $28,
             $29, $30,
-            $31, $32, $33, $34, $35, $36
+            $31, $32, $33, $34, $35, $36,
+            $37, $38, $39
         )",
     )
     .bind(row.transport)
@@ -247,6 +266,9 @@ async fn insert_row(pool: &sqlx::PgPool, row: &SightingRow) -> Result<(), sqlx::
     .bind(row.auth_len)
     .bind(row.auth_ts)
     .bind(&row.auth_data)
+    .bind(row.rx_lat)
+    .bind(row.rx_lon)
+    .bind(row.rx_alt)
     .execute(pool)
     .await?;
 

@@ -9,6 +9,9 @@ export interface Drone {
 	location: Location | null;
 	system: DroneSystem | null;
 	operator_id: OperatorId | null;
+	distance_m: number | null;
+	bearing: number | null;
+	compass: string | null;
 }
 
 export interface BasicId {
