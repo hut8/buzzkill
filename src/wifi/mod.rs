@@ -63,9 +63,9 @@ pub fn run(
                         .get(&beacon.mac)
                         .and_then(|d| d.location.as_ref())
                         .map(|l| (l.latitude, l.longitude));
-                    output::print_new_drone("wifi", &beacon.mac, beacon.rssi, None, drone_loc, &gps);
+                    output::print_new_drone("wifi", &beacon.mac, beacon.rssi, None, drone_loc, gps_fix.as_ref());
                 }
-                output::print_message("wifi", &beacon.mac, beacon.rssi, msg, &gps);
+                output::print_message("wifi", &beacon.mac, beacon.rssi, msg, gps_fix.as_ref());
 
                 if let Some(ref tx) = db_tx {
                     let row = db::build_row(

@@ -1,4 +1,4 @@
-use crate::gps::{self, GpsHandle};
+use crate::gps::{self, GpsFix};
 use crate::remoteid::decode::DroneIdMessage;
 use crate::tracker::DroneState;
 
@@ -17,7 +17,7 @@ pub fn print_new_drone(
     rssi: i8,
     addr_type: Option<u8>,
     drone_loc: Option<(f64, f64)>,
-    gps: &GpsHandle,
+    gps_fix: Option<&GpsFix>,
 ) {
     let addr_kind = match addr_type {
         Some(0) => " (public)".to_string(),
@@ -28,7 +28,7 @@ pub fn print_new_drone(
         None => String::new(),
     };
     let geo_info = match drone_loc {
-        Some((lat, lon)) => format_geo_info(lat, lon, gps),
+        Some((lat, lon)) => format_geo_info(lat, lon, gps_fix),
         None => String::new(),
     };
     println!(
@@ -47,7 +47,7 @@ pub fn print_message(
     mac: &[u8; 6],
     rssi: i8,
     msg: &DroneIdMessage,
-    gps: &GpsHandle,
+    gps_fix: Option<&GpsFix>,
 ) {
     let mac_str = format_mac(mac);
     match msg {
@@ -58,7 +58,7 @@ pub fn print_message(
             );
         }
         DroneIdMessage::Location(loc) => {
-            let geo_info = format_geo_info(loc.latitude, loc.longitude, gps);
+            let geo_info = format_geo_info(loc.latitude, loc.longitude, gps_fix);
             println!(
                 "  [Location]   [{}] mac={} lat={:.7} lon={:.7} alt_p={:.1}m alt_g={:.1}m height={:.1}m speed={:.1}m/s dir={:.0}{} rssi={}dBm",
                 transport,
@@ -119,12 +119,12 @@ pub fn print_message(
 }
 
 /// Format geo info (distance/bearing) when we have a GPS fix and drone location.
-fn format_geo_info(drone_lat: f64, drone_lon: f64, gps: &GpsHandle) -> String {
+fn format_geo_info(drone_lat: f64, drone_lon: f64, gps_fix: Option<&GpsFix>) -> String {
     // Skip invalid coordinates (0,0 means no fix from drone)
     if drone_lat.abs() < 0.0001 && drone_lon.abs() < 0.0001 {
         return String::new();
     }
-    let fix = match gps.lock().ok().and_then(|g| g.clone()) {
+    let fix = match gps_fix {
         Some(f) => f,
         None => return String::new(),
     };
@@ -133,10 +133,11 @@ fn format_geo_info(drone_lat: f64, drone_lon: f64, gps: &GpsHandle) -> String {
     let compass = gps::compass_direction(abs_brg);
     let rel = gps::relative_bearing(fix.track, abs_brg);
     let clock = gps::clock_position(rel);
+    let normalized_bearing = (abs_brg.round() as u32) % 360;
     format!(
-        " dist={} bearing={:.0}°({}) clock={}",
+        " dist={} bearing={}°({}) clock={}",
         gps::format_distance(dist),
-        abs_brg,
+        normalized_bearing,
         compass,
         clock,
     )

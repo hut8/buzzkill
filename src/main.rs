@@ -171,10 +171,10 @@ fn main() {
                                 report.rssi,
                                 Some(report.addr_type),
                                 drone_loc,
-                                &gps,
+                                gps_fix.as_ref(),
                             );
                         }
-                        output::print_message("ble", &report.addr, report.rssi, msg, &gps);
+                        output::print_message("ble", &report.addr, report.rssi, msg, gps_fix.as_ref());
 
                         if let Some(ref tx) = db_tx {
                             let row = db::build_row(

@@ -184,3 +184,89 @@ pub fn format_distance(meters: f64) -> String {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn haversine_known_distance() {
+        // New York (40.7128, -74.0060) to Los Angeles (34.0522, -118.2437) ≈ 3,944 km
+        let dist = haversine_distance(40.7128, -74.0060, 34.0522, -118.2437);
+        assert!((dist - 3_944_000.0).abs() < 50_000.0, "dist={}", dist);
+    }
+
+    #[test]
+    fn haversine_same_point() {
+        let dist = haversine_distance(51.5, -0.1, 51.5, -0.1);
+        assert!(dist < 0.01, "dist={}", dist);
+    }
+
+    #[test]
+    fn bearing_due_north() {
+        // Point directly north should be ~0°
+        let brg = bearing(51.0, 0.0, 52.0, 0.0);
+        assert!(brg < 1.0 || brg > 359.0, "brg={}", brg);
+    }
+
+    #[test]
+    fn bearing_due_east() {
+        // Point directly east should be ~90°
+        let brg = bearing(0.0, 0.0, 0.0, 1.0);
+        assert!((brg - 90.0).abs() < 1.0, "brg={}", brg);
+    }
+
+    #[test]
+    fn bearing_due_south() {
+        let brg = bearing(52.0, 0.0, 51.0, 0.0);
+        assert!((brg - 180.0).abs() < 1.0, "brg={}", brg);
+    }
+
+    #[test]
+    fn relative_bearing_ahead() {
+        // Drone directly ahead (same as our track)
+        assert!((relative_bearing(90.0, 90.0) - 0.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn relative_bearing_right() {
+        // Track north, drone to the east -> 90° relative
+        assert!((relative_bearing(0.0, 90.0) - 90.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn relative_bearing_behind() {
+        assert!((relative_bearing(0.0, 180.0) - 180.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn clock_position_values() {
+        assert_eq!(clock_position(0.0), "12:00");
+        assert_eq!(clock_position(90.0), "3:00");
+        assert_eq!(clock_position(180.0), "6:00");
+        assert_eq!(clock_position(270.0), "9:00");
+        assert_eq!(clock_position(30.0), "1:00");
+        assert_eq!(clock_position(345.0), "12:00");
+        assert_eq!(clock_position(330.0), "11:00");
+    }
+
+    #[test]
+    fn compass_direction_all_octants() {
+        assert_eq!(compass_direction(0.0), "N");
+        assert_eq!(compass_direction(45.0), "NE");
+        assert_eq!(compass_direction(90.0), "E");
+        assert_eq!(compass_direction(135.0), "SE");
+        assert_eq!(compass_direction(180.0), "S");
+        assert_eq!(compass_direction(225.0), "SW");
+        assert_eq!(compass_direction(270.0), "W");
+        assert_eq!(compass_direction(315.0), "NW");
+        assert_eq!(compass_direction(359.0), "N");
+    }
+
+    #[test]
+    fn format_distance_meters_and_km() {
+        assert_eq!(format_distance(500.0), "500m");
+        assert_eq!(format_distance(1500.0), "1.5km");
+        assert_eq!(format_distance(50.0), "50m");
+    }
+}
+
