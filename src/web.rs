@@ -195,9 +195,30 @@ async fn handle_static_file(uri: Uri) -> impl IntoResponse {
     (StatusCode::NOT_FOUND, "Not Found").into_response()
 }
 
+fn extract_remote_ip(headers: &HeaderMap, remote_addr: Option<std::net::SocketAddr>) -> String {
+    if let Some(real_ip) = headers.get("x-real-ip").and_then(|h| h.to_str().ok()) {
+        return real_ip.to_string();
+    }
+    if let Some(forwarded_for) = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok()) {
+        if let Some(first_ip) = forwarded_for.split(',').next() {
+            return first_ip.trim().to_string();
+        }
+    }
+    remote_addr
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 async fn request_logging(request: Request<Body>, next: Next) -> Response {
     let method = request.method().clone();
     let path = request.uri().path().to_string();
+    let remote_ip = extract_remote_ip(
+        request.headers(),
+        request
+            .extensions()
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|ci| ci.0),
+    );
     let start = Instant::now();
 
     let response = next.run(request).await;
@@ -205,11 +226,12 @@ async fn request_logging(request: Request<Body>, next: Next) -> Response {
     let status = response.status().as_u16();
 
     log::info!(
-        "{} {} {} {:.2}ms",
+        "{} {} {} {:.2}ms {}",
         method,
         path,
         status,
-        duration.as_secs_f64() * 1000.0
+        duration.as_secs_f64() * 1000.0,
+        remote_ip
     );
 
     response
@@ -240,7 +262,12 @@ pub async fn start_web_server(tracker: Arc<Mutex<Tracker>>, port: u16, scan_conf
 
     log::info!("Web server listening on http://127.0.0.1:{}", port);
 
-    axum::serve(listener, app).await.unwrap_or_else(|e| {
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .unwrap_or_else(|e| {
         log::error!("Web server error: {}", e);
     });
 }
