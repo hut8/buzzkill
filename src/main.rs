@@ -151,7 +151,8 @@ fn main() {
     // Spawn web server
     let web_tracker = Arc::clone(&tracker);
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime for web server");
+        let rt =
+            tokio::runtime::Runtime::new().expect("Failed to create tokio runtime for web server");
         rt.block_on(web::start_web_server(web_tracker, web_port));
     });
 

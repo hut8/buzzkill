@@ -1,13 +1,13 @@
 use std::sync::{Arc, Mutex};
 
 use axum::{
-    Router,
     extract::State,
     http::{HeaderMap, StatusCode, Uri},
     response::IntoResponse,
     routing::get,
+    Router,
 };
-use include_dir::{Dir, include_dir};
+use include_dir::{include_dir, Dir};
 use mime_guess::from_path;
 use serde::Serialize;
 use tower_http::cors::CorsLayer;
@@ -124,7 +124,11 @@ async fn api_drones(State(state): State<AppState>) -> impl IntoResponse {
         .collect();
 
     // Sort by most recently seen
-    drones.sort_by(|a, b| a.last_seen_secs_ago.partial_cmp(&b.last_seen_secs_ago).unwrap());
+    drones.sort_by(|a, b| {
+        a.last_seen_secs_ago
+            .partial_cmp(&b.last_seen_secs_ago)
+            .unwrap()
+    });
 
     axum::Json(drones)
 }
