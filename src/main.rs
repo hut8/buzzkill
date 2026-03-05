@@ -4,11 +4,13 @@ mod hci;
 mod output;
 mod remoteid;
 mod tracker;
+mod web;
 mod wifi;
 
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::hci::commands;
@@ -55,6 +57,20 @@ fn main() {
             }
         },
         None => None,
+    };
+
+    let web_port: u16 = match args.iter().position(|a| a == "--port") {
+        Some(i) => match args.get(i + 1) {
+            Some(val) => val.parse().unwrap_or_else(|_| {
+                eprintln!("Invalid value for --port: {}", val);
+                std::process::exit(1);
+            }),
+            None => {
+                eprintln!("Missing value for --port");
+                std::process::exit(1);
+            }
+        },
+        None => 4200,
     };
 
     // Set up DB channel if DATABASE_URL is set
@@ -130,12 +146,20 @@ fn main() {
         });
     }
 
+    let tracker = Arc::new(Mutex::new(Tracker::new(expiry_secs)));
+
+    // Spawn web server
+    let web_tracker = Arc::clone(&tracker);
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime for web server");
+        rt.block_on(web::start_web_server(web_tracker, web_port));
+    });
+
     println!(
         "Buzzkill scanning for Remote ID drones on {}... (Ctrl+C to stop)",
         adapter
     );
 
-    let mut tracker = Tracker::new(expiry_secs);
     let mut buf = [0u8; 1024];
     let mut last_expire = Instant::now();
 
@@ -171,8 +195,10 @@ fn main() {
                     );
                     let messages = decode::decode_all(&payload.message);
                     for msg in &messages {
-                        let is_new =
-                            tracker.update(&report.addr, report.rssi, payload.counter, msg, "ble");
+                        let is_new = {
+                            let mut t = tracker.lock().unwrap();
+                            t.update(&report.addr, report.rssi, payload.counter, msg, "ble")
+                        };
 
                         if is_new {
                             output::print_new_drone(
@@ -210,7 +236,7 @@ fn main() {
 
         // Periodic expiry check
         if last_expire.elapsed().as_secs() >= 5 {
-            tracker.expire();
+            tracker.lock().unwrap().expire();
             last_expire = Instant::now();
         }
     }
@@ -219,7 +245,7 @@ fn main() {
     let _ = commands::le_set_scan_enable(&sock, false);
     println!(
         "Scan stopped. Tracked {} drone(s) total.",
-        tracker.drones.len()
+        tracker.lock().unwrap().drones.len()
     );
 }
 
