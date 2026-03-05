@@ -37,14 +37,14 @@
 
 <div class="flex h-full flex-col">
 	<AppBar>
-		<AppBar.Toolbar>
+		<AppBar.Toolbar class="grid grid-cols-[auto_1fr_auto] gap-3">
 			<AppBar.Lead>
 				<a href="/" class="flex items-center gap-2 text-xl font-bold">
 					<Radar class="h-6 w-6" />
 					Buzzkill
 				</a>
 			</AppBar.Lead>
-			<AppBar.Trail class="flex items-center gap-4">
+			<AppBar.Trail class="flex items-center justify-end gap-4">
 				{#if status}
 					<div class="flex items-center gap-3 text-sm">
 						<span class="flex items-center gap-1" class:opacity-30={!status.bluetooth}>
