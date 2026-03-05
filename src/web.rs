@@ -15,9 +15,16 @@ use serde::Serialize;
 
 static ASSETS: Dir<'_> = include_dir!("web/build");
 
+#[derive(Clone, Serialize)]
+pub struct ScanConfig {
+    pub bluetooth: bool,
+    pub wifi: bool,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub tracker: Arc<Mutex<Tracker>>,
+    pub scan_config: ScanConfig,
 }
 
 #[derive(Serialize)]
@@ -127,6 +134,10 @@ async fn api_drones(State(state): State<AppState>) -> impl IntoResponse {
     axum::Json(drones)
 }
 
+async fn api_status(State(state): State<AppState>) -> impl IntoResponse {
+    axum::Json(state.scan_config)
+}
+
 async fn handle_static_file(uri: Uri) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/');
 
@@ -180,10 +191,15 @@ async fn handle_static_file(uri: Uri) -> impl IntoResponse {
     (StatusCode::NOT_FOUND, "Not Found").into_response()
 }
 
-pub async fn start_web_server(tracker: Arc<Mutex<Tracker>>, port: u16) {
-    let state = AppState { tracker };
+pub async fn start_web_server(tracker: Arc<Mutex<Tracker>>, port: u16, scan_config: ScanConfig) {
+    let state = AppState {
+        tracker,
+        scan_config,
+    };
 
-    let api_router = Router::new().route("/drones", get(api_drones));
+    let api_router = Router::new()
+        .route("/drones", get(api_drones))
+        .route("/status", get(api_status));
 
     let app = Router::new()
         .nest("/api", api_router)

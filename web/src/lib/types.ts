@@ -45,3 +45,8 @@ export interface OperatorId {
 	operator_id_type: number;
 	operator_id: string;
 }
+
+export interface ScanStatus {
+	bluetooth: boolean;
+	wifi: boolean;
+}

@@ -138,6 +138,7 @@ fn main() {
     }
 
     let tracker = Arc::new(Mutex::new(Tracker::new(expiry_secs)));
+    let wifi_enabled = wifi_iface.is_some();
 
     // Spawn WiFi scanner thread if requested
     if let Some(iface) = wifi_iface {
@@ -151,10 +152,14 @@ fn main() {
 
     // Spawn web server
     let web_tracker = Arc::clone(&tracker);
+    let scan_config = web::ScanConfig {
+        bluetooth: true,
+        wifi: wifi_enabled,
+    };
     std::thread::spawn(move || {
         let rt =
             tokio::runtime::Runtime::new().expect("Failed to create tokio runtime for web server");
-        rt.block_on(web::start_web_server(web_tracker, web_port));
+        rt.block_on(web::start_web_server(web_tracker, web_port, scan_config));
     });
 
     println!(
