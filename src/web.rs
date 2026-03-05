@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
 
+use crate::output;
+use crate::tracker::Tracker;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode, Uri},
@@ -10,10 +12,6 @@ use axum::{
 use include_dir::{include_dir, Dir};
 use mime_guess::from_path;
 use serde::Serialize;
-use tower_http::cors::CorsLayer;
-
-use crate::output;
-use crate::tracker::Tracker;
 
 static ASSETS: Dir<'_> = include_dir!("web/build");
 
@@ -124,11 +122,7 @@ async fn api_drones(State(state): State<AppState>) -> impl IntoResponse {
         .collect();
 
     // Sort by most recently seen
-    drones.sort_by(|a, b| {
-        a.last_seen_secs_ago
-            .partial_cmp(&b.last_seen_secs_ago)
-            .unwrap()
-    });
+    drones.sort_by(|a, b| a.last_seen_secs_ago.total_cmp(&b.last_seen_secs_ago));
 
     axum::Json(drones)
 }
@@ -194,8 +188,7 @@ pub async fn start_web_server(tracker: Arc<Mutex<Tracker>>, port: u16) {
     let app = Router::new()
         .nest("/api", api_router)
         .fallback(handle_static_file)
-        .with_state(state)
-        .layer(CorsLayer::permissive());
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port))
         .await

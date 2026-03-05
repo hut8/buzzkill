@@ -137,16 +137,17 @@ fn main() {
         );
     }
 
+    let tracker = Arc::new(Mutex::new(Tracker::new(expiry_secs)));
+
     // Spawn WiFi scanner thread if requested
     if let Some(iface) = wifi_iface {
         let wifi_db_tx = db_tx.clone();
         let wifi_email_tx = email_tx.clone();
+        let wifi_tracker = Arc::clone(&tracker);
         std::thread::spawn(move || {
-            wifi::run(&iface, &RUNNING, wifi_db_tx, wifi_email_tx, expiry_secs);
+            wifi::run(&iface, &RUNNING, wifi_db_tx, wifi_email_tx, wifi_tracker);
         });
     }
-
-    let tracker = Arc::new(Mutex::new(Tracker::new(expiry_secs)));
 
     // Spawn web server
     let web_tracker = Arc::clone(&tracker);

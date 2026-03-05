@@ -65,7 +65,10 @@ IMPORT_LINE="import /etc/caddy/Caddyfile.${SERVICE_NAME}"
 
 echo "==> Installing Caddyfile..."
 sudo cp "${SCRIPT_DIR}/Caddyfile" "${CADDY_INCLUDE}"
-if ! grep -qF "${IMPORT_LINE}" "${CADDY_CONF}"; then
+if [ ! -f "${CADDY_CONF}" ]; then
+    echo "${IMPORT_LINE}" | sudo tee "${CADDY_CONF}" > /dev/null
+    echo "    Created ${CADDY_CONF} with import directive"
+elif ! grep -qF "${IMPORT_LINE}" "${CADDY_CONF}"; then
     echo "${IMPORT_LINE}" | sudo tee -a "${CADDY_CONF}" > /dev/null
     echo "    Added import directive to ${CADDY_CONF}"
 else
