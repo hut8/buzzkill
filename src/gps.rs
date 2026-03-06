@@ -10,8 +10,10 @@ pub struct GpsFix {
     pub lat: f64,
     pub lon: f64,
     pub alt: f64,
+    #[allow(dead_code)]
     pub speed: f64,
     pub track: f64,
+    #[allow(dead_code)]
     pub time: String,
 }
 
