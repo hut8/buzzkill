@@ -9,7 +9,9 @@
 		Minus,
 		Wifi,
 		Bluetooth,
-		Clock
+		Clock,
+		Crosshair,
+		Navigation
 	} from '@lucide/svelte';
 	import type { Drone } from '$lib/types';
 
@@ -62,6 +64,11 @@
 		if (rssi >= -50) return 'bg-green-500';
 		if (rssi >= -70) return 'bg-yellow-500';
 		return 'bg-red-500';
+	}
+
+	function formatDistance(meters: number): string {
+		if (meters < 1000) return `${Math.round(meters)}m`;
+		return `${(meters / 1000).toFixed(1)}km`;
 	}
 </script>
 
@@ -144,6 +151,25 @@
 							</div>
 						</div>
 					</div>
+
+					<!-- Distance & bearing (relative to us) -->
+					{#if drone.distance_m != null && drone.bearing != null}
+						<div
+							class="mt-3 flex items-center gap-4 rounded-md bg-surface-700/50 px-3 py-2"
+						>
+							<div class="flex items-center gap-1.5">
+								<Crosshair class="h-4 w-4 text-green-400" />
+								<span class="text-lg font-bold">{formatDistance(drone.distance_m)}</span>
+							</div>
+							<div class="flex items-center gap-1.5">
+								<Navigation
+									class="h-4 w-4 text-blue-400"
+									style="transform: rotate({drone.bearing}deg)"
+								/>
+								<span class="font-mono">{Math.round(drone.bearing)}&deg; {drone.compass}</span>
+							</div>
+						</div>
+					{/if}
 
 					<!-- Location data -->
 					{#if drone.location}

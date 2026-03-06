@@ -1,5 +1,6 @@
 mod db;
 mod email;
+mod gps;
 mod hci;
 mod output;
 mod remoteid;
@@ -140,18 +141,30 @@ fn main() {
     let tracker = Arc::new(Mutex::new(Tracker::new(expiry_secs)));
     let wifi_enabled = wifi_iface.is_some();
 
+    // Start GPS reader
+    let gps = gps::spawn(&RUNNING);
+
     // Spawn WiFi scanner thread if requested
     if let Some(iface) = wifi_iface {
         let wifi_db_tx = db_tx.clone();
         let wifi_email_tx = email_tx.clone();
         let wifi_tracker = Arc::clone(&tracker);
+        let wifi_gps = gps.clone();
         std::thread::spawn(move || {
-            wifi::run(&iface, &RUNNING, wifi_db_tx, wifi_email_tx, wifi_tracker);
+            wifi::run(
+                &iface,
+                &RUNNING,
+                wifi_db_tx,
+                wifi_email_tx,
+                wifi_tracker,
+                wifi_gps,
+            );
         });
     }
 
     // Spawn web server
     let web_tracker = Arc::clone(&tracker);
+    let web_gps = gps.clone();
     let scan_config = web::ScanConfig {
         bluetooth: true,
         wifi: wifi_enabled,
@@ -159,7 +172,12 @@ fn main() {
     std::thread::spawn(move || {
         let rt =
             tokio::runtime::Runtime::new().expect("Failed to create tokio runtime for web server");
-        rt.block_on(web::start_web_server(web_tracker, web_port, scan_config));
+        rt.block_on(web::start_web_server(
+            web_tracker,
+            web_port,
+            scan_config,
+            web_gps,
+        ));
     });
 
     println!(
@@ -201,6 +219,7 @@ fn main() {
                         report.event_type
                     );
                     let messages = decode::decode_all(&payload.message);
+                    let gps_fix = gps.lock().ok().and_then(|g| g.clone());
                     for msg in &messages {
                         let is_new = {
                             let mut t = tracker.lock().unwrap();
@@ -208,11 +227,20 @@ fn main() {
                         };
 
                         if is_new {
+                            let drone_loc = {
+                                let t = tracker.lock().unwrap();
+                                t.drones
+                                    .get(&report.addr)
+                                    .and_then(|d| d.location.as_ref())
+                                    .map(|l| (l.latitude, l.longitude))
+                            };
                             output::print_new_drone(
                                 "ble",
                                 &report.addr,
                                 report.rssi,
                                 Some(report.addr_type),
+                                drone_loc,
+                                gps_fix.as_ref(),
                             );
                             if let Some(ref tx) = email_tx {
                                 if let Err(e) = tx.try_send(email::DroneAlert {
@@ -224,7 +252,13 @@ fn main() {
                                 }
                             }
                         }
-                        output::print_message("ble", &report.addr, report.rssi, msg);
+                        output::print_message(
+                            "ble",
+                            &report.addr,
+                            report.rssi,
+                            msg,
+                            gps_fix.as_ref(),
+                        );
 
                         if let Some(ref tx) = db_tx {
                             let row = db::build_row(
@@ -233,6 +267,7 @@ fn main() {
                                 report.rssi,
                                 payload.counter,
                                 msg,
+                                gps_fix.as_ref(),
                             );
                             let _ = tx.try_send(row);
                         }

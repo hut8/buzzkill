@@ -1,3 +1,4 @@
+use crate::gps::{self, GpsFix};
 use crate::remoteid::decode::DroneIdMessage;
 use crate::tracker::DroneState;
 
@@ -10,7 +11,14 @@ pub fn format_mac(mac: &[u8; 6]) -> String {
 }
 
 /// Print a new drone discovery.
-pub fn print_new_drone(transport: &str, mac: &[u8; 6], rssi: i8, addr_type: Option<u8>) {
+pub fn print_new_drone(
+    transport: &str,
+    mac: &[u8; 6],
+    rssi: i8,
+    addr_type: Option<u8>,
+    drone_loc: Option<(f64, f64)>,
+    gps_fix: Option<&GpsFix>,
+) {
     let addr_kind = match addr_type {
         Some(0) => " (public)".to_string(),
         Some(1) => " (random)".to_string(),
@@ -19,17 +27,28 @@ pub fn print_new_drone(transport: &str, mac: &[u8; 6], rssi: i8, addr_type: Opti
         Some(other) => format!(" (addr_type:{})", other),
         None => String::new(),
     };
+    let geo_info = match drone_loc {
+        Some((lat, lon)) => format_geo_info(lat, lon, gps_fix),
+        None => String::new(),
+    };
     println!(
-        "[+] NEW DRONE  [{}] mac={}{} rssi={}dBm",
+        "[+] NEW DRONE  [{}] mac={}{} rssi={}dBm{}",
         transport,
         format_mac(mac),
         addr_kind,
         rssi,
+        geo_info,
     );
 }
 
 /// Print a decoded message update.
-pub fn print_message(transport: &str, mac: &[u8; 6], rssi: i8, msg: &DroneIdMessage) {
+pub fn print_message(
+    transport: &str,
+    mac: &[u8; 6],
+    rssi: i8,
+    msg: &DroneIdMessage,
+    gps_fix: Option<&GpsFix>,
+) {
     let mac_str = format_mac(mac);
     match msg {
         DroneIdMessage::BasicId(bid) => {
@@ -39,8 +58,9 @@ pub fn print_message(transport: &str, mac: &[u8; 6], rssi: i8, msg: &DroneIdMess
             );
         }
         DroneIdMessage::Location(loc) => {
+            let geo_info = format_geo_info(loc.latitude, loc.longitude, gps_fix);
             println!(
-                "  [Location]   [{}] mac={} lat={:.7} lon={:.7} alt_p={:.1}m alt_g={:.1}m height={:.1}m speed={:.1}m/s dir={:.0} rssi={}dBm",
+                "  [Location]   [{}] mac={} lat={:.7} lon={:.7} alt_p={:.1}m alt_g={:.1}m height={:.1}m speed={:.1}m/s dir={:.0}{} rssi={}dBm",
                 transport,
                 mac_str,
                 loc.latitude,
@@ -50,6 +70,7 @@ pub fn print_message(transport: &str, mac: &[u8; 6], rssi: i8, msg: &DroneIdMess
                 loc.height_above_takeoff,
                 loc.speed_horizontal,
                 loc.direction,
+                geo_info,
                 rssi,
             );
         }
@@ -95,6 +116,31 @@ pub fn print_message(transport: &str, mac: &[u8; 6], rssi: i8, msg: &DroneIdMess
             );
         }
     }
+}
+
+/// Format geo info (distance/bearing) when we have a GPS fix and drone location.
+fn format_geo_info(drone_lat: f64, drone_lon: f64, gps_fix: Option<&GpsFix>) -> String {
+    // Skip invalid coordinates (0,0 means no fix from drone)
+    if drone_lat.abs() < 0.0001 && drone_lon.abs() < 0.0001 {
+        return String::new();
+    }
+    let fix = match gps_fix {
+        Some(f) => f,
+        None => return String::new(),
+    };
+    let dist = gps::haversine_distance(fix.lat, fix.lon, drone_lat, drone_lon);
+    let abs_brg = gps::bearing(fix.lat, fix.lon, drone_lat, drone_lon);
+    let compass = gps::compass_direction(abs_brg);
+    let rel = gps::relative_bearing(fix.track, abs_brg);
+    let clock = gps::clock_position(rel);
+    let normalized_bearing = (abs_brg.round() as u32) % 360;
+    format!(
+        " dist={} bearing={}°({}) clock={}",
+        gps::format_distance(dist),
+        normalized_bearing,
+        compass,
+        clock,
+    )
 }
 
 /// Print drone lost contact.

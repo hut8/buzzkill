@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use std::time::Instant;
 
+use crate::gps::{self, GpsHandle};
 use crate::output;
 use crate::tracker::Tracker;
 use axum::{
@@ -29,6 +30,7 @@ pub struct ScanConfig {
 pub struct AppState {
     pub tracker: Arc<Mutex<Tracker>>,
     pub scan_config: ScanConfig,
+    pub gps: GpsHandle,
 }
 
 #[derive(Serialize)]
@@ -43,6 +45,9 @@ struct DroneJson {
     location: Option<LocationJson>,
     system: Option<SystemJson>,
     operator_id: Option<OperatorIdJson>,
+    distance_m: Option<f64>,
+    bearing: Option<f64>,
+    compass: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -85,50 +90,67 @@ struct OperatorIdJson {
 }
 
 async fn api_drones(State(state): State<AppState>) -> impl IntoResponse {
+    let gps_fix = state.gps.lock().ok().and_then(|g| g.clone());
     let tracker = state.tracker.lock().unwrap();
     let now = std::time::Instant::now();
 
     let mut drones: Vec<DroneJson> = tracker
         .drones
         .values()
-        .map(|d| DroneJson {
-            mac: output::format_mac(&d.mac),
-            transport: d.transport,
-            rssi: d.rssi,
-            first_seen_secs_ago: now.duration_since(d.first_seen).as_secs_f64(),
-            last_seen_secs_ago: now.duration_since(d.last_seen).as_secs_f64(),
-            msg_count: d.msg_count,
-            basic_id: d.basic_id.as_ref().map(|b| BasicIdJson {
-                id_type: format!("{}", b.id_type),
-                ua_type: format!("{}", b.ua_type),
-                ua_id: b.ua_id.clone(),
-            }),
-            location: d.location.as_ref().map(|l| LocationJson {
-                status: l.status,
-                direction: l.direction,
-                speed_horizontal: l.speed_horizontal,
-                speed_vertical: l.speed_vertical,
-                latitude: l.latitude,
-                longitude: l.longitude,
-                altitude_pressure: l.altitude_pressure,
-                altitude_geodetic: l.altitude_geodetic,
-                height_above_takeoff: l.height_above_takeoff,
-                timestamp: l.timestamp,
-            }),
-            system: d.system.as_ref().map(|s| SystemJson {
-                operator_latitude: s.operator_latitude,
-                operator_longitude: s.operator_longitude,
-                area_count: s.area_count,
-                area_radius: s.area_radius,
-                area_ceiling: s.area_ceiling,
-                area_floor: s.area_floor,
-                classification_type: s.classification_type,
-                operator_altitude_geo: s.operator_altitude_geo,
-            }),
-            operator_id: d.operator_id.as_ref().map(|o| OperatorIdJson {
-                operator_id_type: o.operator_id_type,
-                operator_id: o.operator_id.clone(),
-            }),
+        .map(|d| {
+            let (distance_m, bearing_deg, compass) = match (&gps_fix, d.location.as_ref()) {
+                (Some(fix), Some(loc))
+                    if loc.latitude.abs() > 0.0001 || loc.longitude.abs() > 0.0001 =>
+                {
+                    let dist =
+                        gps::haversine_distance(fix.lat, fix.lon, loc.latitude, loc.longitude);
+                    let brg = gps::bearing(fix.lat, fix.lon, loc.latitude, loc.longitude);
+                    (Some(dist), Some(brg), Some(gps::compass_direction(brg)))
+                }
+                _ => (None, None, None),
+            };
+            DroneJson {
+                mac: output::format_mac(&d.mac),
+                transport: d.transport,
+                rssi: d.rssi,
+                first_seen_secs_ago: now.duration_since(d.first_seen).as_secs_f64(),
+                last_seen_secs_ago: now.duration_since(d.last_seen).as_secs_f64(),
+                msg_count: d.msg_count,
+                basic_id: d.basic_id.as_ref().map(|b| BasicIdJson {
+                    id_type: format!("{}", b.id_type),
+                    ua_type: format!("{}", b.ua_type),
+                    ua_id: b.ua_id.clone(),
+                }),
+                location: d.location.as_ref().map(|l| LocationJson {
+                    status: l.status,
+                    direction: l.direction,
+                    speed_horizontal: l.speed_horizontal,
+                    speed_vertical: l.speed_vertical,
+                    latitude: l.latitude,
+                    longitude: l.longitude,
+                    altitude_pressure: l.altitude_pressure,
+                    altitude_geodetic: l.altitude_geodetic,
+                    height_above_takeoff: l.height_above_takeoff,
+                    timestamp: l.timestamp,
+                }),
+                system: d.system.as_ref().map(|s| SystemJson {
+                    operator_latitude: s.operator_latitude,
+                    operator_longitude: s.operator_longitude,
+                    area_count: s.area_count,
+                    area_radius: s.area_radius,
+                    area_ceiling: s.area_ceiling,
+                    area_floor: s.area_floor,
+                    classification_type: s.classification_type,
+                    operator_altitude_geo: s.operator_altitude_geo,
+                }),
+                operator_id: d.operator_id.as_ref().map(|o| OperatorIdJson {
+                    operator_id_type: o.operator_id_type,
+                    operator_id: o.operator_id.clone(),
+                }),
+                distance_m,
+                bearing: bearing_deg,
+                compass,
+            }
         })
         .collect();
 
@@ -248,10 +270,16 @@ fn build_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-pub async fn start_web_server(tracker: Arc<Mutex<Tracker>>, port: u16, scan_config: ScanConfig) {
+pub async fn start_web_server(
+    tracker: Arc<Mutex<Tracker>>,
+    port: u16,
+    scan_config: ScanConfig,
+    gps: GpsHandle,
+) {
     let state = AppState {
         tracker,
         scan_config,
+        gps,
     };
 
     let app = build_router(state).layer(middleware::from_fn(request_logging));
@@ -287,6 +315,7 @@ mod tests {
                 bluetooth: true,
                 wifi: false,
             },
+            gps: Arc::new(Mutex::new(None)),
         }
     }
 
