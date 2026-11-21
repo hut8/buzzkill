@@ -241,11 +241,14 @@ pub fn decode_message(data: &[u8; 25]) -> DroneIdMessage {
 
 /// Decode multiple messages from a single 25-byte payload if it's a Message Pack,
 /// otherwise decode the single message. Returns a vec of decoded messages.
-pub fn decode_all(data: &[u8; 25]) -> Vec<DroneIdMessage> {
-    if MessageType::from_nibble((data[0] >> 4) & 0x0F) == MessageType::MessagePack {
+pub fn decode_all(data: &[u8]) -> Vec<DroneIdMessage> {
+    if data.first().map(|b| b >> 4) == Some(0xF) {
         decode_message_pack(data)
     } else {
-        vec![decode_message(data)]
+        data.get(..25)
+            .and_then(|m| m.try_into().ok())
+            .map(|m| vec![decode_message(m)])
+            .unwrap_or_default()
     }
 }
 
@@ -357,27 +360,23 @@ fn decode_self_id(data: &[u8; 25]) -> DroneIdMessage {
 }
 
 fn decode_system(data: &[u8; 25]) -> DroneIdMessage {
-    let classification_type = (data[1] >> 4) & 0x0F;
-
-    let operator_latitude = i32::from_le_bytes([data[2], data[3], data[4], data[5]]) as f64 * 1e-7;
-    let operator_longitude = i32::from_le_bytes([data[6], data[7], data[8], data[9]]) as f64 * 1e-7;
-
-    let area_count = u16::from_le_bytes([data[10], data[11]]);
-    let area_radius = data[12] as u16 * 10; // 10m resolution
-    let area_ceiling = u16::from_le_bytes([data[13], data[14]]) as f64 * 0.5 - 1000.0;
-    let area_floor = u16::from_le_bytes([data[15], data[16]]) as f64 * 0.5 - 1000.0;
-
-    let operator_altitude_geo = u16::from_le_bytes([data[21], data[22]]) as f64 * 0.5 - 1000.0;
+    let Ok(sys) = remoteid::System::decode(data) else {
+        return DroneIdMessage::Unknown {
+            msg_type: 0x4,
+            proto_version: data[0] & 0x0F,
+        };
+    };
+    let alt = |a: Option<f32>| a.map_or(-1000.0, f64::from);
 
     DroneIdMessage::System(System {
-        operator_latitude,
-        operator_longitude,
-        area_count,
-        area_radius,
-        area_ceiling,
-        area_floor,
-        classification_type,
-        operator_altitude_geo,
+        operator_latitude: sys.operator_latitude,
+        operator_longitude: sys.operator_longitude,
+        area_count: sys.area_count,
+        area_radius: sys.area_radius,
+        area_ceiling: alt(sys.area_ceiling),
+        area_floor: alt(sys.area_floor),
+        classification_type: sys.classification_type.into(),
+        operator_altitude_geo: alt(sys.operator_altitude_geo),
     })
 }
 
@@ -391,19 +390,14 @@ fn decode_operator_id(data: &[u8; 25]) -> DroneIdMessage {
     })
 }
 
-fn decode_message_pack(data: &[u8; 25]) -> Vec<DroneIdMessage> {
-    // Message Pack: byte 1 = number of messages, byte 2+ = packed 25-byte messages
-    // In BLE single advertisements, space is very limited so message packs
-    // are primarily seen in BT5 long range or WiFi. For a standard BLE ad
-    // the 25-byte payload can't hold multiple 25-byte sub-messages, so this
-    // is a best-effort parse.
-    let _num_messages = data[1];
-    // Not enough room in a single 25-byte frame for sub-messages.
-    // Return as unknown for now.
-    vec![DroneIdMessage::Unknown {
-        msg_type: 0xF,
-        proto_version: data[0] & 0x0F,
-    }]
+fn decode_message_pack(data: &[u8]) -> Vec<DroneIdMessage> {
+    match remoteid::MessagePack::parse(data) {
+        Ok(pack) => pack.raw_messages().map(decode_message).collect(),
+        Err(_) => vec![DroneIdMessage::Unknown {
+            msg_type: 0xF,
+            proto_version: data[0] & 0x0F,
+        }],
+    }
 }
 
 fn extract_ascii_string(bytes: &[u8]) -> String {
@@ -506,7 +500,7 @@ mod tests {
     fn test_decode_system() {
         let mut msg = [0u8; 25];
         msg[0] = 0x42; // type=4 (System), version=2
-        msg[1] = 0x10; // classification_type=1
+        msg[1] = 0x04; // classification_type=1 (EU), bits 4-2
 
         // operator lat: 47.0 degrees => 470000000
         let lat: i32 = 470000000;
@@ -546,6 +540,47 @@ mod tests {
                 assert_eq!(sid.description, "Photography flight");
             }
             other => panic!("Expected SelfId, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_decode_system_operator_altitude() {
+        let mut msg = [0u8; 25];
+        msg[0] = 0x42;
+        // operator altitude 120 m => (120 + 1000) / 0.5 = 2240, bytes 18-19
+        msg[18..20].copy_from_slice(&2240u16.to_le_bytes());
+        // timestamp lives at bytes 20-23 and must not be read as altitude
+        msg[20..24].copy_from_slice(&0x0BAD_F00Du32.to_le_bytes());
+
+        match decode_message(&msg) {
+            DroneIdMessage::System(sys) => assert!((sys.operator_altitude_geo - 120.0).abs() < 0.1),
+            other => panic!("Expected System, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_decode_message_pack() {
+        let mut basic = [0u8; 25];
+        basic[0] = 0x02;
+        basic[1] = 0x12;
+        basic[2..14].copy_from_slice(b"1596F3507452");
+        let mut op = [0u8; 25];
+        op[0] = 0x52;
+        op[2..10].copy_from_slice(b"FIN87ast");
+
+        let mut pack = vec![0xF2, 25, 2];
+        pack.extend_from_slice(&basic);
+        pack.extend_from_slice(&op);
+
+        let msgs = decode_all(&pack);
+        assert_eq!(msgs.len(), 2);
+        match &msgs[0] {
+            DroneIdMessage::BasicId(b) => assert_eq!(b.ua_id, "1596F3507452"),
+            other => panic!("Expected BasicId, got {:?}", other),
+        }
+        match &msgs[1] {
+            DroneIdMessage::OperatorId(o) => assert_eq!(o.operator_id, "FIN87ast"),
+            other => panic!("Expected OperatorId, got {:?}", other),
         }
     }
 }

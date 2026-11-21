@@ -3,7 +3,7 @@ pub struct RemoteIdBeacon {
     pub mac: [u8; 6],
     pub rssi: i8,
     pub counter: u8,
-    pub message: [u8; 25],
+    pub message: Vec<u8>,
 }
 
 /// OpenDroneID over WiFi Beacon OUI: FA:0B:BC, type 0x0D
@@ -83,8 +83,7 @@ fn parse_remote_id_ie(ies: &[u8], mac: [u8; 6], rssi: i8) -> Option<RemoteIdBeac
             let ie_data = &ies[data_start..data_end];
             if ie_data[0..3] == ODID_OUI && ie_data[3] == ODID_TYPE {
                 let counter = ie_data[4];
-                let mut message = [0u8; 25];
-                message.copy_from_slice(&ie_data[5..30]);
+                let message = ie_data[5..].to_vec();
                 return Some(RemoteIdBeacon {
                     mac,
                     rssi,
