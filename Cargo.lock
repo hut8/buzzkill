@@ -204,6 +204,7 @@ dependencies = [
  "log",
  "mime_guess",
  "nix",
+ "remoteid",
  "serde",
  "serde_json",
  "sqlx",
@@ -1385,6 +1386,12 @@ name = "regex-syntax"
 version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
+
+[[package]]
+name = "remoteid"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "265f4316fa34247037d01a935a715e49397cbd3a2312dedc2e03e4ba31026d8b"
 
 [[package]]
 name = "ring"
